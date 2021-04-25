@@ -1,4 +1,4 @@
-module henleScraper
+module alignment
 
 go 1.16
 
