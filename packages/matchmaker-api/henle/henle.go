@@ -1,15 +1,18 @@
 package henle
 
 import (
+	"context"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"github.com/gocolly/colly"
+	"go.mongodb.org/mongo-driver/mongo"
 	"io"
+	"log"
 	"os"
 	"strconv"
 	"strings"
-	"time"
+	"sync"
 )
 
 type Book struct {
@@ -38,7 +41,7 @@ type Detail struct {
 	HenleDifficulty string
 	ABRSMDifficulty []string
 	Section         string
-	Composer		string
+	Composer        string
 }
 
 // Write to CSV whenever new book is added to the books chan
@@ -97,60 +100,38 @@ func writeToJson(books *chan Book, done *chan bool, file *os.File) {
 	}
 }
 
-func Scrape(outFile *os.File, mode string, verbose int) {
-	var verbout io.Writer
-	switch verbose {
-	case 0:
-		verbout, _ = os.Create("~console-output.txt")
-	default:
-		verbout = os.Stdout
+func writeToMongo(books *chan Book, done *chan bool, collection *mongo.Collection) {
+	for {
+		book, ok := <-*books
+		if !ok {
+			*done <- true
+			return
+		}
+		res, err := collection.InsertOne(context.Background(), book)
+		if err != nil {
+			log.Println(err)
+			log.Println("error inserting ", book)
+		}
+		fmt.Println("inserted ", res.InsertedID)
 	}
+}
 
-	// Channel to collect books
-	books := make(chan Book, 10)
-	done := make(chan bool, 1)
-	switch mode {
-	case "csv":
-		go writeToCsv(&books, &done, outFile)
-	case "json":
-		go writeToJson(&books, &done, outFile)
-	default:
-		panic("Unrecognized mode")
-	}
-
-	// Instantiate default collector
-	c := colly.NewCollector(
-		// Visit only domains: www.henle.de
-		colly.AllowedDomains("www.henle.de"),
-		//colly.CacheDir("./cache"),
-	)
-
-	// Create another collector to henle book details
-	c2 := c.Clone()
-
-	// Limit the number of threads started by colly to two
-	// when visiting links which domains' matches "*httpbin.*" glob
-	c2.Limit(&colly.LimitRule{
-		DomainGlob:  "*henle.*",
-		Parallelism: 2,  // max collectors running
-		Delay:       3 * time.Second,  // delay between each call. If collectors finish before delay, only parallelism=1.
-	})
-
+func setupCollectors(c *colly.Collector, c2 *colly.Collector, books *chan Book, stdout io.Writer) {
 	// Before making a request print "Visiting ..."
 	c.OnRequest(func(r *colly.Request) {
-		fmt.Fprintln(verbout, "c Visiting", r.URL.String())
+		fmt.Fprintln(stdout, "c Visiting", r.URL.String())
 	})
 	c2.OnRequest(func(r *colly.Request) {
-		fmt.Fprintln(verbout, "c2 Visiting", r.URL.String())
+		fmt.Fprintln(stdout, "c2 Visiting", r.URL.String())
 	})
 
 	// Let detail collector visit pages linked on book cover from a search page
 	c.OnHTML("article.result-item > div.result-column-left > figure.result-cover > a", func(e *colly.HTMLElement) {
 		link := e.Attr("href")
-		fmt.Fprintf(verbout,"Link found: %s\n", link)
+		fmt.Fprintf(stdout, "Link found: %s\n", link)
 		err := c2.Visit(e.Request.AbsoluteURL(link))
 		if err != nil {
-			fmt.Fprintf(verbout, "c2.Visiting %s error: %s", e.Request.AbsoluteURL(link), err)
+			fmt.Fprintf(stdout, "c2.Visiting %s error: %s", e.Request.AbsoluteURL(link), err)
 		}
 	})
 
@@ -170,9 +151,13 @@ func Scrape(outFile *os.File, mode string, verbose int) {
 		e.ForEachWithBreak("div.detail-hero", func(i int, e *colly.HTMLElement) bool {
 			go func() { title <- e.ChildText("h2.main-title") }()
 			go func() { composer <- e.ChildText("h2.sub-title") }()
-			go func() { price <- strings.Replace(e.DOM.Find("div.column-cart > p.price").Contents().Not("br,span").Text(), " ", " ", 1) }()
+			go func() {
+				price <- strings.Replace(e.DOM.Find("div.column-cart > p.price").Contents().Not("br,span").Text(), " ", " ", 1)
+			}()
 			go func() { description <- strings.Replace(e.ChildText("div.article-text"), "\n", "\\n", -1) }()
-			go func() { coverLink <- e.Request.AbsoluteURL(e.ChildAttr("figure.cover-container > a > img", "data-src")) }()
+			go func() {
+				coverLink <- e.Request.AbsoluteURL(e.ChildAttr("figure.cover-container > a > img", "data-src"))
+			}()
 			go func() {
 				var inst []string
 				e.ForEach("ul.breadcrumb > li", func(i int, e *colly.HTMLElement) {
@@ -245,7 +230,7 @@ func Scrape(outFile *os.File, mode string, verbose int) {
 							title = e.ChildText("li.column-title")
 						}
 						instrument := strings.Split(e.ChildText("li.column-difficulty"), " ")[0]
-						difficulty :=  instrument + " " + e.ChildText("li.column-difficulty > span.grade-circle")
+						difficulty := instrument + " " + e.ChildText("li.column-difficulty > span.grade-circle")
 						var abrsm []string
 						e.ForEach("li.column-difficulty > a", func(i int, e *colly.HTMLElement) {
 							abrsm = append(abrsm, e.Text)
@@ -279,26 +264,109 @@ func Scrape(outFile *os.File, mode string, verbose int) {
 			CoverLink:       <-coverLink,
 		}
 		//fmt.Println("Sending a book")
-		books <- book
+		*books <- book
 		//fmt.Println("Sent a book")
 	})
+}
+
+func mulBooks(books *chan Book, num int) []*chan Book {
+	consumers := make([]*chan Book, num)
+	for i := 0; i < num; i++ {
+		cons := make(chan Book, 10)
+		consumers = append(consumers, &cons)
+	}
+
+	var o = sync.Once{}
+	go o.Do(func() {
+		go func() {
+			for v := range *books {
+				for _, cons := range consumers {
+					*cons <- v
+				}
+			}
+		}()
+	})
+	return consumers
+}
+
+func Scrape(mode string, verbose int, outFile *os.File, collection *mongo.Collection) {
+	var verbout io.Writer
+	switch verbose {
+	case 0:
+		verbout, _ = os.Create("~console-output.txt")
+	default:
+		verbout = os.Stdout
+	}
+
+	// Channel to collect books
+	books := make(chan Book, 10)
+	done := make(chan bool, 1)
+	switch mode {
+	case "csv":
+		go writeToCsv(&books, &done, outFile)
+	case "json":
+		go writeToJson(&books, &done, outFile)
+	case "mongo":
+		go writeToMongo(&books, &done, collection)
+	case "mongo-csv":
+		booksCopy := mulBooks(&books, 2)
+		done1 := make(chan bool, 1)
+		done2 := make(chan bool, 1)
+		go writeToMongo(booksCopy[0], &done1, collection)
+		go writeToCsv(booksCopy[1], &done2, outFile)
+		go func() {
+			select {
+			case <-done1:
+				fmt.Println("Finished writing to mongo")
+				<-done2
+				fmt.Println("Finished writing to CSV")
+			case <-done2:
+				fmt.Println("Finished writing to CSV")
+				<-done1
+				fmt.Println("Finished writing to mongo")
+			}
+			done <- true
+		}()
+	default:
+		panic("Unrecognized mode")
+	}
+
+	// Instantiate default collector
+	c := colly.NewCollector(
+		// Visit only domains: www.henle.de
+		colly.AllowedDomains("www.henle.de"),
+		//colly.CacheDir("./cache"),
+	)
+
+	// Create another collector to henle book details
+	c2 := c.Clone()
+
+	// Limit the number of threads started by colly to two
+	// when visiting links which domains' matches "*httpbin.*" glob
+	c2.Limit(&colly.LimitRule{
+		DomainGlob:  "*henle.*",
+		Parallelism: 2, // max collectors running
+		//Delay:       2 * time.Second,  // delay between each call. If collectors finish before delay, only parallelism=1.
+	})
+
+	setupCollectors(c, c2, &books, verbout)
 
 	// Start scraping on ...
 	// List View
 	err := c.Visit("https://www.henle.de/en/search/?Scoring=Keyboard+instruments&Instrument=Piano+solo")
 
 	// Detail View: Just 1 title
-	//err = c2.Visit("https://www.henle.de/en/detail/?Title=Allegro+barbaro_1400")
+	//err := c2.Visit("https://www.henle.de/en/detail/?Title=Allegro+barbaro_1400")
 	// Detail View: Header
-	//err = c2.Visit("https://www.henle.de/en/detail/?Title=Chants+d%27Espagne+op.+232_782")
+	//err := c2.Visit("https://www.henle.de/en/detail/?Title=Chants+d%27Espagne+op.+232_782")
 	// Detail View: Header + Hidden Items
-	//err = c2.Visit("https://www.henle.de/en/detail/?Title=Selected+Piano+Works_393")
+	//err := c2.Visit("https://www.henle.de/en/detail/?Title=Selected+Piano+Works_393")
 	// Detail View: 2 ABRSM
-	//err = c2.Visit("https://www.henle.de/en/detail/?Title=Piano+Sonata+no.+26+E+flat+major+op.+81a+%28Les+Adieux%29_1223")
+	//err := c2.Visit("https://www.henle.de/en/detail/?Title=Piano+Sonata+no.+26+E+flat+major+op.+81a+%28Les+Adieux%29_1223")
 	// String instruments > Violin and Piano. Content has Authors.
-	//err = c2.Visit("https://www.henle.de/en/detail/?Title=Volume+II_353")
+	//err := c2.Visit("https://www.henle.de/en/detail/?Title=Volume+II_353")
 	if err != nil {
-		fmt.Fprintln(verbout,"c.Visit error:", err)
+		log.Println("c.Visit error:", err)
 	}
 
 	c2.Wait()
