@@ -12,7 +12,6 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"log"
 	"matchmaker/henle"
-	"matchmaker/server"
 	"os"
 	"strconv"
 	"time"
@@ -26,50 +25,49 @@ func scrapeToFile() {
 	}
 	defer outFile.Close()
 
-	henle.Scrape("csv", 1, outFile, nil)
+	henle.ScrapeBookDetails("csv", 1, outFile, nil)
 }
 
 func scrapeToStdout() {
-	henle.Scrape("json", 0, os.Stdout, nil)
+	henle.ScrapeBookDetails("json", 0, os.Stdout, nil)
 }
 
-
 type Piece struct {
-	Title []string
+	Title    []string
 	Composer string
 }
 
 type HenlePiece struct {
-	Title string
-	Composer string
+	Title      string
+	Composer   string
 	Difficulty string
 }
 
 type PianoSyllabusPiece struct {
-	URL string
+	URL      string
 	Composer string
-	Title string
-	ID string
-	Grade string
+	Title    string
+	ID       string
+	Grade    string
 	Syllabus string
-	Youtube string
-	Notes string
+	Youtube  string
+	Notes    string
 }
 
 type PianoStreetPiece struct {
-	URL string
+	URL      string
 	Composer string
-	Title string
-	Key string
-	Type string
-	Level string
-	Notes string
+	Title    string
+	Key      string
+	Type     string
+	Level    string
+	Notes    string
 }
 
 type IMSLPPiece struct {
-	URL string
-	Title string
-	Composer string
+	URL        string
+	Title      string
+	Composer   string
 	HeaderInfo map[string]interface{}
 	//Performance []IMSLPPerformce
 	//SheetMusic []IMSLPSheetMusic
@@ -103,7 +101,9 @@ func testMongo() {
 	//fmt.Println(res)
 	obj, _ := primitive.ObjectIDFromHex("5e854b309cd55cbaf52c03fe")
 	cur, err := collection.Find(context.Background(), bson.M{"_id": obj})
-	if err != nil { log.Fatal(err) }
+	if err != nil {
+		log.Fatal(err)
+	}
 	defer cur.Close(context.Background())
 	for cur.Next(context.Background()) {
 		// To decode into a struct, use cursor.Decode()
@@ -113,7 +113,9 @@ func testMongo() {
 		//}{}
 		result := map[string]interface{}{}
 		err := cur.Decode(&result)
-		if err != nil { log.Fatal(err) }
+		if err != nil {
+			log.Fatal(err)
+		}
 		// do something with result...
 		fmt.Println(result)
 		for k, v := range result {
@@ -142,6 +144,7 @@ func testMongo() {
 	}
 }
 
+// readMsczFiles opens mscz-files.csv and adds its data into a mongodb collection.
 func readMsczFiles(filename string, collection *mongo.Collection) error {
 	file, err := os.Open(filename)
 	if err != nil {
@@ -162,6 +165,7 @@ func readMsczFiles(filename string, collection *mongo.Collection) error {
 	return err
 }
 
+// readGradedPiecesAll reads Graded_Pieces_All.csv and inserts its contents to a mongodb collection.
 func readGradedPiecesAll(filename string, collection *mongo.Collection) error {
 	file, err := os.Open(filename)
 	if err != nil {
@@ -179,12 +183,12 @@ func readGradedPiecesAll(filename string, collection *mongo.Collection) error {
 		v1, _ := strconv.ParseInt(record[0], 10, 0)
 		v2, _ := strconv.ParseInt(record[1], 10, 0)
 		res, err := collection.InsertOne(context.Background(), bson.M{
-			"OrSor": int(v1),
-			"Grade": int(v2),
-			"Composer": record[2],
-			"Composition": record[3],
+			"OrSor":                                int(v1),
+			"Grade":                                int(v2),
+			"Composer":                             record[2],
+			"Composition":                          record[3],
 			"Main Technical Difficulty or Benefit": record[4],
-			"Other Notes & Comments": record[5],
+			"Other Notes & Comments":               record[5],
 		})
 		if err != nil {
 			log.Println(err)
@@ -195,7 +199,7 @@ func readGradedPiecesAll(filename string, collection *mongo.Collection) error {
 	return err
 }
 
-
+// readJSONL opens a JSONL file and sinserts into a mongodb collection.
 func readJSONL(filename string, collection *mongo.Collection) error {
 	file, err := os.Open(filename)
 	if err != nil {
@@ -220,28 +224,28 @@ func readJSONL(filename string, collection *mongo.Collection) error {
 }
 
 func main() {
-	client, err := mongo.NewClient(options.Client().ApplyURI("mongodb://localhost:27017"))
-	if err != nil {
-		log.Fatal(err)
-	}
-	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
-	err = client.Connect(ctx)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer client.Disconnect(ctx)
-
-	db := client.Database("test_database")
+	//client, err := mongo.NewClient(options.Client().ApplyURI("mongodb://localhost:27017"))
+	//if err != nil {
+	//	log.Fatal(err)
+	//}
+	//ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+	//err = client.Connect(ctx)
+	//if err != nil {
+	//	log.Fatal(err)
+	//}
+	//defer client.Disconnect(ctx)
+	//
+	//db := client.Database("test_database")
 
 	//readJSONL("D:\\data\\MDC\\score.jsonl", db.Collection("score"))
 	//readMsczFiles("D:\\data\\MDC\\mscz-files.csv", db.Collection("msczFiles"))
 	//readGradedPiecesAll("D:\\data\\MDC\\Graded_Pieces_All.csv", db.Collection("pianoStreetPiece"))
 
-	// Run server
-	server.SetDatabase(db)
-	r := server.SetupRouter()
-	// Listen and Server in 0.0.0.0:8080
-	r.Run(":8080")
+	//// Run server
+	//server.SetDatabase(db)
+	//r := server.SetupRouter()
+	//// Listen and Server in 0.0.0.0:8080
+	//r.Run(":8080")
 
-	//henle.Scrape("mongo",1, nil, db.Collection("henleBooks"))
+	henle.ScrapeBookImages(0, nil)
 }
