@@ -44,7 +44,7 @@ type Detail struct {
 	Composer        string
 }
 
-// Write to CSV whenever new book is added to the books chan
+// writeToCsv writes to CSV whenever new book is added to the books chan
 func writeToCsv(books *chan Book, done *chan bool, file *os.File) {
 	writer := csv.NewWriter(file)
 	for {
@@ -87,6 +87,7 @@ func writeToCsv(books *chan Book, done *chan bool, file *os.File) {
 	}
 }
 
+// writeToMongo consumes a channel of books, writes the books into a file in JSONL format, and sends true when done to a bool channel.
 func writeToJson(books *chan Book, done *chan bool, file *os.File) {
 	enc := json.NewEncoder(file)
 	enc.SetIndent("", "  ")
@@ -100,6 +101,7 @@ func writeToJson(books *chan Book, done *chan bool, file *os.File) {
 	}
 }
 
+// writeToMongo consumes a channel of books, inserts the books into a mongodb collection, and sends true when done to a bool channel.
 func writeToMongo(books *chan Book, done *chan bool, collection *mongo.Collection) {
 	for {
 		book, ok := <-*books
@@ -116,13 +118,20 @@ func writeToMongo(books *chan Book, done *chan bool, collection *mongo.Collectio
 	}
 }
 
-func setupCollectors(c *colly.Collector, c2 *colly.Collector, books *chan Book, stdout io.Writer) {
+func setupBookDetailCollectors(c *colly.Collector, c2 *colly.Collector, books *chan Book, stdout io.Writer) {
 	// Before making a request print "Visiting ..."
 	c.OnRequest(func(r *colly.Request) {
 		fmt.Fprintln(stdout, "c Visiting", r.URL.String())
 	})
 	c2.OnRequest(func(r *colly.Request) {
 		fmt.Fprintln(stdout, "c2 Visiting", r.URL.String())
+	})
+
+	c.OnResponse(func(response *colly.Response) {
+		err := response.Save(response.FileName())
+		if err != nil {
+
+		}
 	})
 
 	// Let detail collector visit pages linked on book cover from a search page
@@ -269,6 +278,7 @@ func setupCollectors(c *colly.Collector, c2 *colly.Collector, books *chan Book, 
 	})
 }
 
+// mulBooks multiplexes a channel of books into num channels of books
 func mulBooks(books *chan Book, num int) []*chan Book {
 	consumers := make([]*chan Book, num)
 	for i := 0; i < num; i++ {
@@ -289,11 +299,11 @@ func mulBooks(books *chan Book, num int) []*chan Book {
 	return consumers
 }
 
-func Scrape(mode string, verbose int, outFile *os.File, collection *mongo.Collection) {
+func ScrapeBookDetails(mode string, verbose int, outFile *os.File, collection *mongo.Collection) {
 	var verbout io.Writer
 	switch verbose {
 	case 0:
-		verbout, _ = os.Create("~console-output.txt")
+		verbout, _ = os.Create("~console-output.log")
 	default:
 		verbout = os.Stdout
 	}
@@ -335,10 +345,10 @@ func Scrape(mode string, verbose int, outFile *os.File, collection *mongo.Collec
 	c := colly.NewCollector(
 		// Visit only domains: www.henle.de
 		colly.AllowedDomains("www.henle.de"),
-		//colly.CacheDir("./cache"),
+		colly.CacheDir("./cache"),
 	)
 
-	// Create another collector to henle book details
+	// Create another collector to scrape henle book details
 	c2 := c.Clone()
 
 	// Limit the number of threads started by colly to two
@@ -349,7 +359,7 @@ func Scrape(mode string, verbose int, outFile *os.File, collection *mongo.Collec
 		//Delay:       2 * time.Second,  // delay between each call. If collectors finish before delay, only parallelism=1.
 	})
 
-	setupCollectors(c, c2, &books, verbout)
+	setupBookDetailCollectors(c, c2, &books, verbout)
 
 	// Start scraping on ...
 	// List View
