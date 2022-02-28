@@ -1,4 +1,4 @@
-package henle
+package ipfs
 
 import (
 	"fmt"
@@ -10,18 +10,11 @@ import (
 	"strings"
 )
 
-func setupBookPagesCollectors(c *colly.Collector, c2 *colly.Collector, c3 *colly.Collector, stdout io.Writer) {
+func setupBookPagesCollectors(c *colly.Collector, stdout io.Writer) {
 	// Before making a request print "Visiting ..."
 	c.OnRequest(func(r *colly.Request) {
 		fmt.Fprintln(stdout, "c Visiting", r.URL.String())
 	})
-	c2.OnRequest(func(r *colly.Request) {
-		fmt.Fprintln(stdout, "c2 Visiting", r.URL.String())
-	})
-	c3.OnRequest(func(r *colly.Request) {
-		fmt.Fprintln(stdout, "c3 Visiting", r.URL.String())
-	})
-
 	// Let 2nd collector visit pageflip associated with HN numbers listed on a search page
 	c.OnHTML("article.result-item > div.result-column-left > div.result-content > div.short-facts-container > p.short-facts", func(e *colly.HTMLElement) {
 		parts := strings.Split(e.Text, "HN ")

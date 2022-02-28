@@ -1,4 +1,4 @@
-module matchmaker
+module github.com/bluemonarch21/matchmaker
 
 go 1.16
 
@@ -12,7 +12,6 @@ require (
 	github.com/gobwas/glob v0.2.3 // indirect
 	github.com/gocolly/colly v1.2.0
 	github.com/golang/protobuf v1.5.2 // indirect
-	github.com/google/go-cmp v0.5.5 // indirect
 	github.com/json-iterator/go v1.1.10 // indirect
 	github.com/kennygrant/sanitize v1.2.4 // indirect
 	github.com/klauspost/compress v1.12.1 // indirect

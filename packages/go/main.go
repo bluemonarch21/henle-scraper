@@ -11,7 +11,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"log"
-	"matchmaker/henle"
+	"github.com/bluemonarch21/matchmaker/henle"
 	"os"
 	"strconv"
 	"time"
