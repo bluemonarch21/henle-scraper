@@ -6,11 +6,12 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
 
-func setupBookPagesCollectors(c *colly.Collector, c2 *colly.Collector, c3 *colly.Collector, stdout io.Writer) {
+func setupBookPagesCollectors(c *colly.Collector, c2 *colly.Collector, c3 *colly.Collector, outDir string, stdout io.Writer) {
 	// Before making a request print "Visiting ..."
 	c.OnRequest(func(r *colly.Request) {
 		fmt.Fprintln(stdout, "c Visiting", r.URL.String())
@@ -67,22 +68,22 @@ func setupBookPagesCollectors(c *colly.Collector, c2 *colly.Collector, c3 *colly
 
 	// Saves returned book pages
 	c3.OnResponse(func(response *colly.Response) {
-		path := strings.Split(response.Request.URL.Path, "/")
-		hn := path[len(path)-2]
-		filename := path[len(path)-1]
-		//filename := response.FileName()
-		err := os.MkdirAll(fmt.Sprintf("data/henle/%s/w1500", hn), 0666)
+		elems := strings.Split(response.Request.URL.Path, "/")
+		hn := elems[len(elems)-2]
+		filename := elems[len(elems)-1]
+		dirPath := filepath.Join(outDir, fmt.Sprintf("henle/%s/w1500", hn))
+		err := os.MkdirAll(dirPath, 0666)
 		if err != nil {
-			fmt.Fprintf(stdout, "os.MkdirAll %s error: %s", fmt.Sprintf("data/henle/%s/w1500", hn), err)
+			fmt.Fprintf(stdout, "os.MkdirAll %s error: %s", dirPath, err)
 		}
-		err = response.Save(fmt.Sprintf("data/henle/%s/w1500/%s", hn, filename))
+		err = response.Save(filepath.Join(dirPath, filename))
 		if err != nil {
 			fmt.Fprintf(stdout, "c3.Save %s error: %s", response.Request.URL, err)
 		}
 	})
 }
 
-func ScrapeBookImages(verbose int, outDir *os.File) {
+func ScrapeBookImages(verbose int, outDir string) {
 	var verbout io.Writer
 	switch verbose {
 	case 0:
@@ -93,7 +94,7 @@ func ScrapeBookImages(verbose int, outDir *os.File) {
 
 	c := colly.NewCollector(
 		colly.AllowedDomains("www.henle.de"),
-		colly.CacheDir("./cache"),
+		colly.CacheDir("../../cache"),
 	)
 	c2 := c.Clone()
 	c3 := c.Clone()
@@ -109,7 +110,7 @@ func ScrapeBookImages(verbose int, outDir *os.File) {
 		//Delay:       2 * time.Second,  // delay between each call. If collectors finish before delay, only parallelism=1.
 	})
 
-	setupBookPagesCollectors(c, c2, c3, verbout)
+	setupBookPagesCollectors(c, c2, c3, outDir, verbout)
 
 	// Start scraping on ...
 	// List View

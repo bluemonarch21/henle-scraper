@@ -6,13 +6,15 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"github.com/bluemonarch21/matchmaker/henle"
+	"github.com/bluemonarch21/matchmaker/ipfs"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"log"
-	"github.com/bluemonarch21/matchmaker/henle"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 )
@@ -247,5 +249,11 @@ func main() {
 	//// Listen and Server in 0.0.0.0:8080
 	//r.Run(":8080")
 
-	henle.ScrapeBookImages(0, nil)
+	//henle.ScrapeBookImages(0, "data")
+	ipfs.DownloadMuseScore(
+		1,
+		filepath.Join("D:\\", "data/MDC/musescore"),
+		filepath.Join("D:\\code\\github.com\\bluemonarch21\\mdc", "assets/mscz-files.csv"),
+		8, // max collectors running
+	)
 }

@@ -345,7 +345,7 @@ func ScrapeBookDetails(mode string, verbose int, outFile *os.File, collection *m
 	c := colly.NewCollector(
 		// Visit only domains: www.henle.de
 		colly.AllowedDomains("www.henle.de"),
-		colly.CacheDir("./cache"),
+		colly.CacheDir("../../cache"),
 	)
 
 	// Create another collector to scrape henle book details
