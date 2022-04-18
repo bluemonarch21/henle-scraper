@@ -14,7 +14,6 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"log"
 	"os"
-	"path/filepath"
 	"strconv"
 	"time"
 )
@@ -225,6 +224,62 @@ func readJSONL(filename string, collection *mongo.Collection) error {
 	return nil
 }
 
+const helpMsg string = `
+usage: <exe> <command> [arguments]
+
+<exe> refers to the executable program, can just be "go main.go".
+
+The commands are:
+
+        crawl       start the web crawler on Henle.de search results page
+        download    start the IPFS donwloader for mscz-files.csv
+
+Use "<exe> help <command>" for more information about a command.`
+
+const helpCrawlMsg string = `
+usage: <exe> crawl <destination> [--mode [csv|json]] [--out-dir <path/to/dir>]
+
+Start the web crawler on https://www.henle.de/en/search/ search results page.
+
+The available destinations are:
+
+		details
+					scrapes the book details page https://www.henle.de/en/detail/.
+					Information includes title, composer, HN number, difficulty,
+					and more.
+		images
+					scrapes the book preview images https://www.henle.de/pageflip
+					if available.
+					Default image width is 1500.
+
+The flags are:
+
+        --mode
+					specify output file format.
+					Only valid for details scraping.
+        --out-dir
+					specify output directory.
+					Only valid for images scraping.
+        [TBA]
+
+For more control, import the library's function to use directly.
+See package github.com/bluemonarch21/matchmaker/henle for more information.`
+
+const helpDownloadMsg string = `
+usage: <exe> download <destination> --out-dir <path/to/dir> --from <path/to/input/file>
+
+Start the IPFS downloader from input file.
+
+The available destinations are:
+
+		musescore
+					downloads zipped musescore.mcsx using "mscz-files.csv" as input file.
+					Works along side https://github.com/Xmader/musescore-dataset from
+					which mscz-files.csv can be downloaded. 
+
+For more control, import the library's function to use directly.
+See package github.com/bluemonarch21/matchmaker/ipfs for more information.`
+
 func main() {
 	//client, err := mongo.NewClient(options.Client().ApplyURI("mongodb://localhost:27017"))
 	//if err != nil {
@@ -248,12 +303,84 @@ func main() {
 	//r := server.SetupRouter()
 	//// Listen and Server in 0.0.0.0:8080
 	//r.Run(":8080")
-
-	//henle.ScrapeBookImages(0, "data")
-	ipfs.DownloadMuseScore(
-		1,
-		filepath.Join("D:\\", "data/MDC/musescore"),
-		filepath.Join("D:\\code\\github.com\\bluemonarch21\\mdc", "assets/mscz-files.csv"),
-		8, // max collectors running
-	)
+	command := os.Args[0]
+	if command == "crawl" {
+		destination := os.Args[1]
+		if destination == "details" {
+			var mode string
+			if len(os.Args) == 2 {
+				mode = "csv"
+			} else if os.Args[2] != "--mode" {
+				fmt.Println(helpCrawlMsg)
+				log.Fatal("Invalid argument at 2")
+			} else {
+				mode = os.Args[3]
+			}
+			var filename string
+			if mode == "csv" {
+				filename = "henle-books.csv"
+			} else if mode == "json" {
+				filename = "henle-books.json"
+			}
+			f, err := os.Open(filename)
+			if err != nil {
+				log.Fatal(err)
+			}
+			henle.ScrapeBookDetails(mode, 0, f, nil)
+		} else if destination == "images" {
+			var outDir string
+			if len(os.Args) == 2 {
+				outDir = "data"
+			} else if os.Args[2] != "--out-dir" {
+				fmt.Println(helpCrawlMsg)
+				log.Fatal("Invalid argument at 2")
+			} else {
+				outDir = os.Args[3]
+			}
+			henle.ScrapeBookImages(0, outDir)
+		} else {
+			fmt.Println(helpCrawlMsg)
+			log.Fatal("Invalid argument at 1")
+		}
+	} else if command == "download download <destination> --out-dir <path/to/dir> --from <path/to/input/file>" {
+		if len(os.Args) != 5 {
+			log.Fatal("Invalid argument number 5")
+		}
+		if os.Args[1] != "musescore" {
+			fmt.Println(helpDownloadMsg)
+			log.Fatal("Invalid argument 1")
+		}
+		var outDir string
+		var from string
+		if os.Args[2] == "--out-dir" {
+			outDir = os.Args[3]
+		} else if os.Args[2] == "--from" {
+			from = os.Args[3]
+		} else {
+			fmt.Println(helpDownloadMsg)
+			log.Fatal("Invalid argument 2")
+		}
+		if os.Args[4] == "--out-dir" {
+			outDir = os.Args[5]
+		} else if os.Args[4] == "--from" {
+			from = os.Args[5]
+		} else {
+			fmt.Println(helpDownloadMsg)
+			log.Fatal("Invalid argument 4")
+		}
+		ipfs.DownloadMuseScore(
+			1,
+			outDir,
+			from,
+			8, // max collectors running
+		)
+	} else {
+		fmt.Println(helpMsg)
+	}
+	//ipfs.DownloadMuseScore(
+	//	1,
+	//	filepath.Join("D:\\", "data/MDC/musescore"),
+	//	filepath.Join("D:\\code\\github.com\\bluemonarch21\\mdc", "assets/mscz-files.csv"),
+	//	8, // max collectors running
+	//)
 }
